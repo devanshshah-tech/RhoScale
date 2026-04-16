@@ -1,0 +1,27 @@
+# macOS junk
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Python (for vLLM / experiments)
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Go build artifacts
+bin/
+*.exe
+*.test
+
+# Logs
+*.log
+
+# Env files
+.env
+
+# IDEs
+.vscode/
+.idea/
