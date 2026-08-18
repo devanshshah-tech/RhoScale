@@ -13,9 +13,9 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/devanshu/vllm-controller/pkg/controller"
-	"github.com/devanshu/vllm-controller/pkg/metrics"
-	"github.com/devanshu/vllm-controller/pkg/scaler"
+	"github.com/devanshu/controller/pkg/controller"
+	"github.com/devanshu/controller/pkg/metrics"
+	"github.com/devanshu/controller/pkg/scaler"
 )
 
 // Config holds all tunable parameters for the controller.
@@ -42,6 +42,9 @@ type Config struct {
 	// Replica bounds
 	MinReplicas int64
 	MaxReplicas int64
+
+	// Stub / logging mode
+	LogOutput string
 }
 
 func main() {
@@ -57,6 +60,7 @@ func main() {
 	flag.IntVar(&cfg.ConfirmationTicks, "confirmation-ticks", 2, "Consecutive ticks above threshold before scaling")
 	flag.Int64Var(&cfg.MinReplicas, "min-replicas", 1, "Minimum replica count")
 	flag.Int64Var(&cfg.MaxReplicas, "max-replicas", 10, "Maximum replica count")
+	flag.StringVar(&cfg.LogOutput, "log-output", "", "Path for decision log (enables stub/K8s-less mode)")
 	flag.Parse()
 
 	logger, _ := zap.NewProduction()
@@ -70,7 +74,22 @@ func main() {
 		zap.Duration("cooldown", cfg.CooldownPeriod),
 	)
 
-	k8sClient := buildK8sClient(logger)
+	// Stub mode: log decisions to JSONL, no Kubernetes cluster needed.
+	// Production mode: use real Kubernetes API.
+	var exec *controller.LoggingExecutor
+	var k8sClient kubernetes.Interface
+
+	if cfg.LogOutput != "" {
+		var err error
+		exec, err = controller.NewLoggingExecutor(cfg.LogOutput, logger)
+		if err != nil {
+			logger.Fatal("Cannot create decision log", zap.Error(err))
+		}
+		defer exec.Close()
+		logger.Info("Stub mode enabled — scaling decisions written to JSONL", zap.String("path", cfg.LogOutput))
+	} else {
+		k8sClient = buildK8sClient(logger)
+	}
 
 	promClient := metrics.NewPrometheusClient(cfg.PrometheusAddr, logger)
 
@@ -87,7 +106,7 @@ func main() {
 		ScrapeInterval:    cfg.ScrapeInterval,
 		CooldownPeriod:    cfg.CooldownPeriod,
 		ConfirmationTicks: cfg.ConfirmationTicks,
-	}, k8sClient, promClient, scalingLogic, logger)
+	}, k8sClient, promClient, scalingLogic, exec, logger)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()

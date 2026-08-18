@@ -1,4 +1,4 @@
-module github.com/devanshu/vllm-controller
+module github.com/devanshu/controller
 
 go 1.22
 
