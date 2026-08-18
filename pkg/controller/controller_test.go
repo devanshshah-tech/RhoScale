@@ -10,8 +10,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/devanshu/vllm-controller/pkg/metrics"
-	"github.com/devanshu/vllm-controller/pkg/scaler"
+	"github.com/devanshu/controller/pkg/metrics"
+	"github.com/devanshu/controller/pkg/scaler"
 )
 
 var testLogger = zap.NewNop()
@@ -67,7 +67,7 @@ func TestReconcile_HoldSignal(t *testing.T) {
 		ScrapeInterval:    10 * time.Second,
 		CooldownPeriod:    120 * time.Second,
 		ConfirmationTicks: 2,
-	}, client, scraper, analyzer, testLogger)
+	}, client, scraper, analyzer, nil, testLogger)
 
 	err := ctrl.reconcile(context.Background())
 	if err != nil {
@@ -95,7 +95,7 @@ func TestReconcile_ScaleOut_ConfirmationTicksMet(t *testing.T) {
 		ScrapeInterval:    10 * time.Second,
 		CooldownPeriod:    120 * time.Second,
 		ConfirmationTicks: 2,
-	}, client, scraper, analyzer, testLogger)
+	}, client, scraper, analyzer, nil, testLogger)
 
 	// First tick: consecutiveTicks=1, still < 2 → skip (confirmation not met)
 	err := ctrl.reconcile(context.Background())
@@ -129,7 +129,7 @@ func TestReconcile_ScaleOut_ConfirmationTicksNotMet(t *testing.T) {
 		ScrapeInterval:    10 * time.Second,
 		CooldownPeriod:    120 * time.Second,
 		ConfirmationTicks: 3,
-	}, client, scraper, analyzer, testLogger)
+	}, client, scraper, analyzer, nil, testLogger)
 
 	for i := 0; i < 2; i++ {
 		err := ctrl.reconcile(context.Background())
@@ -159,7 +159,7 @@ func TestReconcile_ScaleIn_NoConfirmationTicksNeeded(t *testing.T) {
 		ScrapeInterval:    10 * time.Second,
 		CooldownPeriod:    120 * time.Second,
 		ConfirmationTicks: 2,
-	}, client, scraper, analyzer, testLogger)
+	}, client, scraper, analyzer, nil, testLogger)
 
 	err := ctrl.reconcile(context.Background())
 	if err != nil {
@@ -187,7 +187,7 @@ func TestReconcile_CoolDownBlocksAction(t *testing.T) {
 		ScrapeInterval:    10 * time.Second,
 		CooldownPeriod:    120 * time.Second,
 		ConfirmationTicks: 1,
-	}, client, scraper, analyzer, testLogger)
+	}, client, scraper, analyzer, nil, testLogger)
 
 	err := ctrl.reconcile(context.Background())
 	if err != nil {
@@ -226,7 +226,7 @@ func TestReconcile_AlreadyAtDesired(t *testing.T) {
 		ScrapeInterval:    10 * time.Second,
 		CooldownPeriod:    120 * time.Second,
 		ConfirmationTicks: 1,
-	}, client, scraper, analyzer, testLogger)
+	}, client, scraper, analyzer, nil, testLogger)
 
 	err := ctrl.reconcile(context.Background())
 	if err != nil {
@@ -249,7 +249,7 @@ func TestReconcile_ScrapeError(t *testing.T) {
 		ScrapeInterval:    10 * time.Second,
 		CooldownPeriod:    120 * time.Second,
 		ConfirmationTicks: 2,
-	}, client, scraper, nil, testLogger)
+	}, client, scraper, nil, nil, testLogger)
 
 	err := ctrl.reconcile(context.Background())
 	if err == nil {
@@ -277,7 +277,7 @@ func TestReconcile_AnalyzeCalledWithCurrentReplicas(t *testing.T) {
 		ScrapeInterval:    10 * time.Second,
 		CooldownPeriod:    120 * time.Second,
 		ConfirmationTicks: 1,
-	}, client, scraper, analyzer, testLogger)
+	}, client, scraper, analyzer, nil, testLogger)
 
 	ctrl.reconcile(context.Background())
 
@@ -286,7 +286,7 @@ func TestReconcile_AnalyzeCalledWithCurrentReplicas(t *testing.T) {
 	}
 }
 
-func TestReconcile_KVCacheUrgent_IgnoresConfirmationTicks(t *testing.T) {
+func TestReconcile_KVCacheUrgent_SubjectToConfirmationTicks(t *testing.T) {
 	client := fake.NewSimpleClientset(makeDeployment("default", "vllm", 2))
 	scraper := &mockScraper{metrics: &metrics.InferenceMetrics{
 		QueueDepth:           2,
@@ -314,10 +314,11 @@ func TestReconcile_KVCacheUrgent_IgnoresConfirmationTicks(t *testing.T) {
 		ScrapeInterval:    10 * time.Second,
 		CooldownPeriod:    120 * time.Second,
 		ConfirmationTicks: 5,
-	}, client, scraper, analyzer, testLogger)
+	}, client, scraper, analyzer, nil, testLogger)
 
-	// KV-cache urgent triggers ScaleOut; confirmation ticks apply to ALL scale-outs.
-	// Need 5 ticks to meet ConfirmationTicks=5.
+	// KV-cache urgent returns ScaleOut, which is subject to confirmation ticks like any
+	// other scale-out — the controller does not special-case KV-cache urgency at the
+	// execute layer. With ConfirmationTicks=5, scale fires on the 5th consecutive tick.
 	for i := 0; i < 4; i++ {
 		err := ctrl.reconcile(context.Background())
 		if err != nil {

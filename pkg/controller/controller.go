@@ -4,15 +4,16 @@
 // observe desired state → compare to actual state → reconcile.
 //
 // Flapping Prevention (Oscillation Damping):
-//   Two mechanisms prevent rapid scale up/down ("flapping"):
-//   1. Cooldown Period: a mandatory wait between consecutive scale actions.
-//      After any scale event, the controller enters a cooldown window
-//      (default 120s) during which no further scale actions are issued.
-//   2. Confirmation Ticks: the metric must exceed the threshold for N
-//      consecutive scrape intervals before a scale-out action is taken.
-//      This filters transient traffic spikes (e.g., a single Poisson burst).
-//   Both mechanisms are drawn from KEDA's design (Annotated Bibliography [5])
-//   and the Kubernetes HPA stabilisation window (Annotated Bibliography [4]).
+//
+//	Two mechanisms prevent rapid scale up/down ("flapping"):
+//	1. Cooldown Period: a mandatory wait between consecutive scale actions.
+//	   After any scale event, the controller enters a cooldown window
+//	   (default 120s) during which no further scale actions are issued.
+//	2. Confirmation Ticks: the metric must exceed the threshold for N
+//	   consecutive scrape intervals before a scale-out action is taken.
+//	   This filters transient traffic spikes (e.g., a single Poisson burst).
+//	Both mechanisms are drawn from KEDA's design (Annotated Bibliography [5])
+//	and the Kubernetes HPA stabilisation window (Annotated Bibliography [4]).
 package controller
 
 import (
@@ -21,12 +22,11 @@ import (
 	"time"
 
 	"go.uber.org/zap"
-	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/devanshu/vllm-controller/pkg/metrics"
-	"github.com/devanshu/vllm-controller/pkg/scaler"
+	"github.com/devanshu/controller/pkg/metrics"
+	"github.com/devanshu/controller/pkg/scaler"
 )
 
 // ControllerConfig holds timing and targeting parameters.
@@ -54,19 +54,22 @@ type Controller struct {
 	k8s      kubernetes.Interface
 	scraper  Scraper
 	analyzer Analyzer
+	executor *LoggingExecutor // nil = use real K8s API, non-nil = stub/JSONL mode
 	logger   *zap.Logger
 
 	// state for flapping prevention
-	lastScaleTime     time.Time
-	consecutiveTicks  int // how many ticks have seen a scale-out signal
+	lastScaleTime    time.Time
+	consecutiveTicks int // how many ticks have seen a scale-out signal
 }
 
 // New constructs a Controller with all dependencies injected.
+// Pass executor=nil for production mode (real Kubernetes API).
 func New(
 	cfg ControllerConfig,
 	k8s kubernetes.Interface,
 	scraper Scraper,
 	analyzer Analyzer,
+	executor *LoggingExecutor,
 	logger *zap.Logger,
 ) *Controller {
 	return &Controller{
@@ -74,6 +77,7 @@ func New(
 		k8s:      k8s,
 		scraper:  scraper,
 		analyzer: analyzer,
+		executor: executor,
 		logger:   logger,
 	}
 }
@@ -104,7 +108,8 @@ func (c *Controller) Run(ctx context.Context) error {
 }
 
 // reconcile is one iteration of the MAPE-K loop:
-//   Monitor → Analyze → Plan → Execute
+//
+//	Monitor → Analyze → Plan → Execute
 func (c *Controller) reconcile(ctx context.Context) error {
 	// ── MONITOR ─────────────────────────────────────────────────────────────
 	// Query Prometheus for the current metric snapshot.
@@ -113,15 +118,24 @@ func (c *Controller) reconcile(ctx context.Context) error {
 		return fmt.Errorf("monitor phase failed: %w", err)
 	}
 
+	c.logger.Info("Monitor phase complete",
+		zap.Float64("queueDepth", snapshot.QueueDepth),
+		zap.Float64("kvCacheFraction", snapshot.KVCacheUsageFraction),
+	)
+
 	// ── OBSERVE ACTUAL STATE ─────────────────────────────────────────────────
-	// Get the current replica count from the Kubernetes API.
-	deploy, err := c.k8s.AppsV1().Deployments(c.cfg.Namespace).
-		Get(ctx, c.cfg.DeploymentName, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("cannot get deployment %s/%s: %w",
-			c.cfg.Namespace, c.cfg.DeploymentName, err)
+	var currentReplicas int32
+	if c.executor != nil {
+		currentReplicas = c.executor.SimulatedReplicas()
+	} else {
+		deploy, err := c.k8s.AppsV1().Deployments(c.cfg.Namespace).
+			Get(ctx, c.cfg.DeploymentName, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("cannot get deployment %s/%s: %w",
+				c.cfg.Namespace, c.cfg.DeploymentName, err)
+		}
+		currentReplicas = *deploy.Spec.Replicas
 	}
-	currentReplicas := *deploy.Spec.Replicas
 
 	// ── ANALYZE + PLAN ───────────────────────────────────────────────────────
 	// The scaler applies the G/G/1 queueing model and returns a decision.
@@ -132,6 +146,7 @@ func (c *Controller) reconcile(ctx context.Context) error {
 		zap.Int32("current", currentReplicas),
 		zap.Int32("desired", decision.DesiredReplicas),
 		zap.String("reason", decision.Reason),
+		zap.Int("consecutiveTicks", c.consecutiveTicks),
 	)
 
 	// ── EXECUTE ──────────────────────────────────────────────────────────────
@@ -175,8 +190,13 @@ func (c *Controller) reconcile(ctx context.Context) error {
 	}
 
 	// --- Issue the scale action ---
-	if err := c.patchReplicas(ctx, deploy, decision.DesiredReplicas); err != nil {
-		return fmt.Errorf("execute phase failed: %w", err)
+	if c.executor != nil {
+		c.executor.Record(decision, currentReplicas,
+			snapshot.QueueDepth, snapshot.KVCacheUsageFraction, snapshot.TTFT_P95_Seconds)
+	} else {
+		if err := c.patchReplicas(ctx, decision.DesiredReplicas); err != nil {
+			return fmt.Errorf("execute phase failed: %w", err)
+		}
 	}
 
 	c.lastScaleTime = time.Now()
@@ -191,17 +211,29 @@ func (c *Controller) reconcile(ctx context.Context) error {
 	return nil
 }
 
-// patchReplicas issues a PATCH to the Kubernetes Deployments API to update
+// Close cleans up the LoggingExecutor file handle if in stub mode.
+func (c *Controller) Close() error {
+	if c.executor != nil {
+		return c.executor.Close()
+	}
+	return nil
+}
+
+// patchReplicas issues an Update to the Kubernetes Deployments API to change
 // the replica count. Uses server-side apply semantics for safety.
 func (c *Controller) patchReplicas(
 	ctx context.Context,
-	deploy *appsv1.Deployment,
 	desired int32,
 ) error {
-	deployCopy := deploy.DeepCopy()
-	deployCopy.Spec.Replicas = &desired
+	deploy, err := c.k8s.AppsV1().Deployments(c.cfg.Namespace).
+		Get(ctx, c.cfg.DeploymentName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("cannot get deployment %s/%s: %w",
+			c.cfg.Namespace, c.cfg.DeploymentName, err)
+	}
+	deploy.Spec.Replicas = &desired
 
-	_, err := c.k8s.AppsV1().Deployments(c.cfg.Namespace).
-		Update(ctx, deployCopy, metav1.UpdateOptions{})
+	_, err = c.k8s.AppsV1().Deployments(c.cfg.Namespace).
+		Update(ctx, deploy, metav1.UpdateOptions{})
 	return err
 }
