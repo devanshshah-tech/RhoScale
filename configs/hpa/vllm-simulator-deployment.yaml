@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-simulator
+  labels:
+    app: vllm-simulator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-simulator
+  template:
+    metadata:
+      labels:
+        app: vllm-simulator
+    spec:
+      containers:
+      - name: simulator
+        image: python:3.11-slim
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          pip install flask && \
+          mkdir -p /app && \
+          cat > /app/server.py << 'EOF'
+          from flask import Flask, request, jsonify
+          import time
+          import random
+
+          app = Flask(__name__)
+
+          @app.route('/v1/chat/completions', methods=['POST'])
+          def chat_completions():
+              # Simulate CPU-intensive inference (50-200ms)
+              start = time.time()
+              duration = random.uniform(0.05, 0.2)
+              while time.time() - start < duration:
+                  # CPU-intensive work
+                  x = sum(i * i for i in range(10000))
+              
+              return jsonify({
+                  "id": "chatcmpl-123",
+                  "object": "chat.completion",
+                  "created": int(time.time()),
+                  "model": "vllm-simulator",
+                  "choices": [{
+                      "index": 0,
+                      "message": {"role": "assistant", "content": "Response"},
+                      "finish_reason": "stop"
+                  }],
+                  "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+              })
+
+          @app.route('/health')
+          def health():
+              return jsonify({"status": "healthy"})
+
+          if __name__ == '__main__':
+              app.run(host='0.0.0.0', port=8000)
+          EOF
+          python /app/server.py
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-simulator
+spec:
+  selector:
+    app: vllm-simulator
+  ports:
+  - port: 8000
+    targetPort: 8000
+  type: LoadBalancer
