@@ -3,7 +3,7 @@ package scaler
 import (
 	"testing"
 
-	"github.com/devanshu/vllm-controller/pkg/metrics"
+	"github.com/devanshu/controller/pkg/metrics"
 )
 
 func TestAnalyze_KVCacheUrgent(t *testing.T) {

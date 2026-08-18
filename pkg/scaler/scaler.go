@@ -26,7 +26,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/devanshu/vllm-controller/pkg/metrics"
+	"github.com/devanshu/controller/pkg/metrics"
 )
 
 // ScalingDecision is the output of the Analyze+Plan phases.
