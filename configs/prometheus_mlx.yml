@@ -1,0 +1,26 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: vllm_mlx
+    static_configs:
+      - targets: ['localhost:8000']
+    metrics_path: /metrics
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'vllm_mlx_scheduler_waiting_requests'
+        target_label: __name__
+        replacement: 'vllm:num_requests_waiting'
+      - source_labels: [__name__]
+        regex: 'vllm_mlx_scheduler_running_requests'
+        target_label: __name__
+        replacement: 'vllm:num_requests_running'
+      - source_labels: [__name__]
+        regex: 'vllm_mlx_cache_utilization_ratio'
+        target_label: __name__
+        replacement: 'vllm:gpu_cache_usage_perc'
+      - source_labels: [__name__]
+        regex: 'vllm_mlx_inference_ttft_seconds_bucket'
+        target_label: __name__
+        replacement: 'vllm:time_to_first_token_seconds_bucket'
