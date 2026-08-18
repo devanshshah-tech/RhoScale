@@ -1,0 +1,21 @@
+{
+  "lambda": 2.0,
+  "duration_sec": 51.77,
+  "total_requests": 62,
+  "actual_rps": 1.2,
+  "avg_latency_ms": 19857.4,
+  "p50_latency_ms": 20204.8,
+  "p95_latency_ms": 22407.9,
+  "p99_latency_ms": 22756.1,
+  "avg_queue_depth": 0.13,
+  "avg_running": 18.73,
+  "avg_total_in_system": 18.87,
+  "max_queue_depth": 1.0,
+  "max_total_in_system": 30.0,
+  "queue_depth_samples": 15,
+  "predicted_W_total_ms": 9433.3,
+  "predicted_W_queue_ms": 66.7,
+  "observed_W_ms": 19857.4,
+  "error_total_pct": 52.5,
+  "error_queue_pct": 99.7
+}

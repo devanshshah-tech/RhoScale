@@ -1,0 +1,47 @@
+
+Summary:
+  Total:	136.4827 secs
+  Slowest:	19.9352 secs
+  Fastest:	16.0986 secs
+  Average:	17.1832 secs
+  Requests/sec:	1.7731
+  
+  Total data:	49152 bytes
+  Size/request:	768 bytes
+
+Response time histogram:
+  16.099 [1]	|■
+  16.482 [31]	|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■
+  16.866 [8]	|■■■■■■■■■■
+  17.250 [0]	|
+  17.633 [8]	|■■■■■■■■■■
+  18.017 [0]	|
+  18.401 [0]	|
+  18.784 [8]	|■■■■■■■■■■
+  19.168 [0]	|
+  19.552 [0]	|
+  19.935 [8]	|■■■■■■■■■■
+
+
+Latency distribution:
+  10%% in 16.0991 secs
+  25%% in 16.2554 secs
+  50%% in 16.5407 secs
+  75%% in 18.6492 secs
+  90%% in 19.9349 secs
+  95%% in 19.9351 secs
+  0%% in 0.0000 secs
+
+Details (average, fastest, slowest):
+  DNS+dialup:	0.0012 secs, 0.0000 secs, 0.0029 secs
+  DNS-lookup:	0.0006 secs, 0.0000 secs, 0.0016 secs
+  req write:	0.0000 secs, 0.0000 secs, 0.0003 secs
+  resp wait:	17.1813 secs, 16.0975 secs, 19.9320 secs
+  resp read:	0.0006 secs, 0.0002 secs, 0.0016 secs
+
+Status code distribution:
+  [200]	64 responses
+
+Error distribution:
+  [178]	Post "http://localhost:8000/v1/chat/completions": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+

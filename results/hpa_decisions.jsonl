@@ -1,0 +1,4 @@
+{"ts": "2026-07-18T18:23:13Z", "direction": "ScaleOut", "from": 1, "to": 2, "cpu_percent": 51.6, "reason": "CPU 51.6% vs target 50%. desired=ceil(51.6/50\u00d71)=2"}
+{"ts": "2026-07-18T18:23:43Z", "direction": "ScaleOut", "from": 2, "to": 3, "cpu_percent": 51.8, "reason": "CPU 51.8% vs target 50%. desired=ceil(51.8/50\u00d72)=3"}
+{"ts": "2026-07-18T18:25:33Z", "direction": "ScaleOut", "from": 3, "to": 4, "cpu_percent": 51.5, "reason": "CPU 51.5% vs target 50%. desired=ceil(51.5/50\u00d73)=4"}
+{"ts": "2026-07-18T18:30:34Z", "direction": "ScaleIn", "from": 4, "to": 1, "cpu_percent": 5.3, "reason": "CPU 5.3% vs target 50%. desired=ceil(5.3/50\u00d74)=1"}
